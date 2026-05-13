@@ -648,3 +648,211 @@ def limpiar_jugadores():
     except OSError as e:
         print(f"Error al limpiar los jugadores: {e}")
 
+
+# ------------------------------------------------------------
+# COPIAS DE SEGURIDAD
+# ------------------------------------------------------------
+
+def hacer_copia_seguridad():
+    """
+    Copia todos los archivos de jugadores a backup/FECHA_HORA/ antes de la partida.
+    Se llama AUTOMÁTICAMENTE desde iniciar_partida(), el usuario no tiene que hacer nada.
+    Usa shutil.copy() para copiar cada archivo individualmente.
+    """
+    ahora          = datetime.now().strftime("%Y%m%d_%H%M%S")
+    carpeta_backup = os.path.join(CARPETA_BACKUP, ahora)
+
+    try:
+        os.makedirs(carpeta_backup, exist_ok=True)   # crea backup/20250421_103215/
+        jugadores = obtener_jugadores()
+
+        for archivo in jugadores:
+            origen  = os.path.join(CARPETA_JUGADORES, archivo)
+            shutil.copy(origen, carpeta_backup)      # shutil.copy() copia el archivo
+
+        print(f"Copia de seguridad guardada en '{carpeta_backup}'.\n")
+
+    except OSError as e:
+        print(f"Error al hacer la copia de seguridad: {e}")
+
+
+def exportar_estadisticas():
+    """
+    Recorre TODAS las copias de seguridad con os.walk() buscando archivos .log
+    y genera un resumen en estadisticas.txt con los ganadores de cada partida.
+    Se llama desde el menú (opción 8), el usuario la activa cuando quiere.
+    """
+    print("\n--- EXPORTAR ESTADÍSTICAS ---\n")
+
+    if not os.path.isdir(CARPETA_BACKUP):
+        print("No hay copias de seguridad todavía. Juega al menos una partida.\n")
+        return
+
+    ganadores = []
+
+    # os.walk() recorre carpetas y subcarpetas de forma recursiva
+    # raiz      → ruta de la carpeta actual
+    # _carpetas → subcarpetas dentro de raiz (no las usamos aquí)
+    # archivos  → archivos dentro de raiz
+    for raiz, _carpetas, archivos in os.walk(CARPETA_BACKUP):
+        for archivo in archivos:
+            if archivo.endswith(".log"):
+                ruta = os.path.join(raiz, archivo)
+                try:
+                    with open(ruta, "r", encoding="utf-8") as f:
+                        for linea in f:
+                            if "GANADOR:" in linea:
+                                # Guardamos la línea del ganador y de qué backup viene
+                                fecha_backup = os.path.basename(raiz)
+                                ganadores.append((fecha_backup, linea.strip()))
+                except OSError:
+                    pass
+
+    if not ganadores:
+        print("No se encontraron resultados en los backups.\n")
+        return
+
+    ruta_stats = "estadisticas.txt"
+    try:
+        with open(ruta_stats, "w", encoding="utf-8") as f:
+            f.write("=" * 45 + "\n")
+            f.write("   ESTADÍSTICAS DE PARTIDAS\n")
+            f.write(f"   Generado el {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
+            f.write("=" * 45 + "\n\n")
+            f.write(f"Total de partidas jugadas: {len(ganadores)}\n\n")
+            for i, (fecha, resultado) in enumerate(ganadores, 1):
+                f.write(f"  Partida {i} ({fecha}): {resultado}\n")
+
+        print(f"Estadísticas exportadas a '{ruta_stats}'.")
+        print(f"Total de partidas registradas: {len(ganadores)}\n")
+
+    except OSError as e:
+        print(f"Error al exportar estadísticas: {e}")
+
+def restaurar_backup():
+    """
+    Permite restaurar los jugadores desde un backup existente.
+    El usuario elige una carpeta de backup y se copian sus jugadores
+    a la carpeta jugadores/, reemplazando los actuales.
+    """
+    print("\n--- RESTAURAR BACKUP ---\n")
+
+    # Comprobar si existe la carpeta backup
+    if not os.path.isdir(CARPETA_BACKUP):
+        print("No hay copias de seguridad disponibles.\n")
+        return
+
+    # Listar carpetas de backup
+    backups = sorted(os.listdir(CARPETA_BACKUP))
+
+    if not backups:
+        print("No hay copias de seguridad disponibles.\n")
+        return
+
+    print("Copias de seguridad disponibles:\n")
+    for i, carpeta in enumerate(backups, start=1):
+        print(f"  {i}. {carpeta}")
+
+    # Elegir backup
+    try:
+        opcion = int(input("\nElige un backup para restaurar: ").strip())
+        if opcion < 1 or opcion > len(backups):
+            print("Opción no válida.\n")
+            return
+    except ValueError:
+        print("Debes introducir un número.\n")
+        return
+
+    carpeta_elegida = backups[opcion - 1]
+    ruta_backup = os.path.join(CARPETA_BACKUP, carpeta_elegida)
+
+    print(f"\nRestaurando backup: {carpeta_elegida}\n")
+
+    # Borrar jugadores actuales
+    try:
+        shutil.rmtree(CARPETA_JUGADORES)
+        os.makedirs(CARPETA_JUGADORES, exist_ok=True)
+    except OSError as e:
+        print(f"Error al limpiar jugadores actuales: {e}")
+        return
+
+    # Copiar jugadores del backup
+    try:
+        for archivo in os.listdir(ruta_backup):
+            if archivo.startswith("jugador_") and archivo.endswith(".txt"):
+                origen = os.path.join(ruta_backup, archivo)
+                destino = os.path.join(CARPETA_JUGADORES, archivo)
+                shutil.copy(origen, destino)
+
+        print("Backup restaurado correctamente.\n")
+
+    except OSError as e:
+        print(f"Error al restaurar el backup: {e}")
+
+    
+# ------------------------------------------------------------
+# MENÚ PRINCIPAL (PARTE VISUAL)
+# ------------------------------------------------------------
+
+def mostrar_menu():
+    """
+    Muestra las opciones del menú en consola.
+    """
+    print("=" * 40)
+    print("   🎲 RULETA RUSA DE ARCHIVOS 🎲")
+    print("=" * 40)
+    print(" 1. Añadir jugador")
+    print(" 2. Ver jugadores añadidos")
+    print(" 3. Modificar jugador")
+    print(" 4. Eliminar jugador")
+    print(" 5. Iniciar partida")
+    print(" 6. Info del sistema")
+    print(" 7. Limpiar jugadores")
+    print(" 8. Exportar estadísticas")
+    print(" 9. Restaurar backup")
+    print(" 10. Salir")
+    print("=" * 40)
+
+
+# ------------------------------------------------------------
+# MENÚ PRINCIPAL
+# ------------------------------------------------------------
+
+def main():
+    crear_entorno()
+
+    while True:
+        mostrar_menu()
+        opcion = input("Elige una opción: ").strip()
+
+        if opcion == "1":
+            crear_jugador()
+        elif opcion == "2":
+            leer_jugadores()
+        elif opcion == "3":
+            modificar_jugador()
+        elif opcion == "4":
+            eliminar_jugador()
+        elif opcion == "5":
+            iniciar_partida()
+        elif opcion == "6":
+            mostrar_info_sistema()
+        elif opcion == "7":
+            limpiar_jugadores()
+        elif opcion == "8":
+            exportar_estadisticas()
+        elif opcion == "9":
+            restaurar_backup()
+        elif opcion == "10":
+            print("\n¡Hasta luego!\n")
+        else:
+            print("\nOpción no válida. Elige entre 1 y 10.\n")
+
+# ------------------------------------------------------------
+# EJECUCIÓN DEL PROGRAMA
+# ------------------------------------------------------------
+
+# Esto significa: "ejecuta main() solo si lanzamos este archivo directamente"
+# (no si lo importamos desde otro archivo)
+if __name__ == "__main__":
+    main()
