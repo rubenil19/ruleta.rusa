@@ -349,3 +349,302 @@ def eliminar_jugador():
 
     except OSError as e:
         print(f"Error al eliminar el jugador: {e}")
+
+# ------------------------------------------------------------
+# MOTOR DEL JUEGO
+# ------------------------------------------------------------
+
+def hay_suficientes_jugadores():
+    """
+    Comprueba si el número de jugadores está entre 2 y el máximo permitido.
+
+    Retorna:
+        bool: True si hay suficientes jugadores, False si no.
+    """
+    jugadores = obtener_jugadores()
+    total = len(jugadores)
+
+    if total < 2:
+        print(f"Necesitas al menos 2 jugadores para jugar. Ahora hay {total}.\n")
+        return False
+
+    if total > MAX_JUGADORES:
+        print(f"Hay demasiados jugadores ({total}). El máximo es {MAX_JUGADORES}.\n")
+        return False
+
+    return True  # Todo correcto
+
+def eliminar_jugador_aleatorio():
+    """
+    Elige un jugador al azar de la carpeta y borra su archivo.
+
+    Retorna:
+        str: El nombre completo del jugador eliminado.
+             None si ocurrió algún error.
+    """
+    jugadores = obtener_jugadores()
+
+    if not jugadores:
+        return None
+
+    # random.choice() elige un elemento aleatorio de una lista
+    archivo_elegido = random.choice(jugadores)
+    ruta_archivo = os.path.join(CARPETA_JUGADORES, archivo_elegido)
+
+    # Leemos el nombre del jugador antes de borrarlo
+    # (para poder mostrarlo y escribirlo en el log)
+    nombre_completo = archivo_elegido  # valor por defecto si falla la lectura
+
+    try:
+        with open(ruta_archivo, "r", encoding="utf-8") as f:
+            lineas = f.readlines()
+
+        datos = {}
+        for linea in lineas:
+            linea = linea.strip()
+            if "=" in linea:
+                clave, valor = linea.split("=", 1)
+                datos[clave] = valor
+
+        nombre_completo = f"{datos.get('nombre', '?')} {datos.get('apellidos', '?')}"
+
+    except OSError as e:
+        print(f"Error al leer el archivo del jugador: {e}")
+
+    # Borramos el archivo del jugador eliminado
+    try:
+        os.remove(ruta_archivo)
+        return nombre_completo
+
+    except OSError as e:
+        print(f"Error al eliminar el jugador: {e}")
+        return None
+
+def iniciar_partida():
+    """
+    Controla el flujo completo de la partida.
+    Elimina jugadores aleatoriamente hasta que quede uno solo.
+    """
+    print("\n--- INICIAR PARTIDA ---\n")
+
+    # Paso 1: Comprobamos que haya suficientes jugadores
+    if not hay_suficientes_jugadores():
+        return  # Salimos si no hay suficientes jugadores
+
+    # Paso 2: Copia de seguridad automática antes de que la partida borre jugadores
+    hacer_copia_seguridad()
+
+    # Paso 3: Inicializamos el log (se sobrescribe el anterior)
+    inicializar_log()
+
+    # Paso 3: Mostramos y registramos los jugadores que participan
+    jugadores_iniciales = obtener_jugadores()
+    total_inicial = len(jugadores_iniciales)
+
+    print(f"¡Comienza la partida con {total_inicial} jugadores!\n")
+    escribir_log(f"Partida iniciada con {total_inicial} jugadores.")
+    escribir_log("-" * 35)
+
+    # Registramos en el log quiénes participan
+    for archivo in jugadores_iniciales:
+        ruta = os.path.join(CARPETA_JUGADORES, archivo)
+        try:
+            with open(ruta, "r", encoding="utf-8") as f:
+                lineas = f.readlines()
+            datos = {}
+            for linea in lineas:
+                linea = linea.strip()
+                if "=" in linea:
+                    clave, valor = linea.split("=", 1)
+                    datos[clave] = valor
+            nombre_completo = f"{datos.get('nombre', '?')} {datos.get('apellidos', '?')}"
+            escribir_log(f"Jugador registrado: {nombre_completo}")
+        except OSError:
+            escribir_log(f"Jugador registrado: {archivo}")
+
+    escribir_log("-" * 35)
+    print("Pulsa Enter para girar la ruleta...")
+    print("=" * 40)
+
+    # -------------------------------------------------------
+    # BUCLE PRINCIPAL DE LA PARTIDA
+    # -------------------------------------------------------
+    ronda = 1
+
+    while True:
+
+        # Comprobamos cuántos jugadores quedan
+        jugadores_restantes = obtener_jugadores()
+        total_restantes = len(jugadores_restantes)
+
+        # ¿Ha terminado la partida?
+        if total_restantes == 1:
+            # Leemos el nombre del ganador desde su archivo
+            archivo_ganador = jugadores_restantes[0]
+            ruta_ganador = os.path.join(CARPETA_JUGADORES, archivo_ganador)
+
+            try:
+                with open(ruta_ganador, "r", encoding="utf-8") as f:
+                    lineas = f.readlines()
+                datos = {}
+                for linea in lineas:
+                    linea = linea.strip()
+                    if "=" in linea:
+                        clave, valor = linea.split("=", 1)
+                        datos[clave] = valor
+                nombre_ganador = f"{datos.get('nombre', '?')} {datos.get('apellidos', '?')}"
+            except OSError:
+                nombre_ganador = archivo_ganador
+
+            # Mostramos y registramos al ganador
+            print("\n" + "=" * 40)
+            print(f"¡GANADOR: {nombre_ganador}!")
+            print("=" * 40 + "\n")
+            escribir_log("-" * 35)
+            escribir_log(f"GANADOR: {nombre_ganador}")
+            escribir_log("Partida finalizada.")
+            print(f"Resultado guardado en '{RUTA_LOG}'.\n")
+
+            # Copiamos el log al backup para que exportar_estadisticas() pueda leerlo
+            try:
+                ultima_backup = sorted(os.listdir(CARPETA_BACKUP))[-1]
+                shutil.copy(RUTA_LOG, os.path.join(CARPETA_BACKUP, ultima_backup))
+            except OSError:
+                pass  # Si falla el copiado del log no interrumpimos el programa
+
+            # Eliminamos todos los jugadores automáticamente al terminar la partida
+            try:
+                shutil.rmtree(CARPETA_JUGADORES)
+                os.makedirs(CARPETA_JUGADORES, exist_ok=True)
+                print("Jugadores eliminados. ¡Listo para una nueva partida!\n")
+                escribir_log("Jugadores eliminados. Tablero limpio.")
+            except OSError as e:
+                print(f"Error al limpiar jugadores tras la partida: {e}")
+
+            break  # Salimos del bucle → partida terminada
+
+        # Mostramos los jugadores que siguen vivos
+        print(f"\n  Ronda {ronda} — Jugadores restantes: {total_restantes}")
+        print("  " + "-" * 30)
+        for i, archivo in enumerate(jugadores_restantes, start=1):
+            ruta = os.path.join(CARPETA_JUGADORES, archivo)
+            try:
+                with open(ruta, "r", encoding="utf-8") as f:
+                    lineas = f.readlines()
+                datos = {}
+                for linea in lineas:
+                    linea = linea.strip()
+                    if "=" in linea:
+                        clave, valor = linea.split("=", 1)
+                        datos[clave] = valor
+                print(f"  {i}. {datos.get('nombre','?')} {datos.get('apellidos','?')}")
+            except OSError:
+                print(f"  {i}. {archivo}")
+
+        print()
+        input("Pulsa Enter para girar la ruleta...")
+
+        # Eliminamos un jugador al azar
+        eliminado = eliminar_jugador_aleatorio()
+
+        if eliminado:
+            print(f"\n¡{eliminado} ha sido eliminado!\n")
+            escribir_log(f"Ronda {ronda}: '{eliminado}' ha sido eliminado.")
+        else:
+            print("\nError al eliminar un jugador.\n")
+
+        ronda += 1
+        print("=" * 40)
+
+# ------------------------------------------------------------
+# FUNCIONES DE SISTEMA OPERATIVO
+# ------------------------------------------------------------
+
+def mostrar_info_sistema():
+    """
+    Muestra información del entorno del proyecto usando os y os.path.
+    Útil para comprobar que todo está en su sitio.
+    """
+    print("\n--- INFORMACIÓN DEL SISTEMA ---\n")
+
+    try:
+        # os.getcwd() → devuelve la carpeta actual de trabajo
+        carpeta_actual = os.getcwd()
+        print(f"  Directorio de trabajo : {carpeta_actual}")
+
+        # os.path.abspath() → convierte ruta relativa en ruta absoluta
+        ruta_jugadores = os.path.abspath(CARPETA_JUGADORES)
+        ruta_log       = os.path.abspath(RUTA_LOG)
+        print(f"  Carpeta jugadores     : {ruta_jugadores}")
+        print(f"  Archivo log           : {ruta_log}")
+
+        # os.path.isdir() → comprueba si una ruta es una carpeta
+        existe_jugadores = os.path.isdir(CARPETA_JUGADORES)
+        existe_log       = os.path.isdir(CARPETA_LOG)
+        print(f"\n  ¿Existe carpeta jugadores? : {'Sí' if existe_jugadores else 'No'}")
+        print(f"  ¿Existe carpeta log?       : {'Sí' if existe_log else 'No'}")
+
+        # os.path.isfile() → comprueba si el log existe como archivo
+        existe_archivo_log = os.path.isfile(RUTA_LOG)
+        print(f"  ¿Existe archivo log?       : {'Sí' if existe_archivo_log else 'No'}")
+
+        # Tamaño del log si existe
+        if existe_archivo_log:
+            # os.path.getsize() → tamaño en bytes
+            tamanio = os.path.getsize(RUTA_LOG)
+            print(f"  Tamaño del log             : {tamanio} bytes")
+
+        # Número de jugadores actuales
+        jugadores = obtener_jugadores()
+        print(f"\n  Jugadores registrados   : {len(jugadores)} / {MAX_JUGADORES}")
+
+        # Listamos los archivos de jugadores con su tamaño
+        if jugadores:
+            print("\n  Archivos de jugadores:")
+            for archivo in jugadores:
+                ruta = os.path.join(CARPETA_JUGADORES, archivo)
+                # os.path.isfile() para asegurarnos de que es un archivo
+                if os.path.isfile(ruta):
+                    tamanio = os.path.getsize(ruta)
+                    print(f"    · {archivo}  ({tamanio} bytes)")
+
+    except OSError as e:
+        print(f"Error al obtener información del sistema: {e}")
+
+    print()
+
+def limpiar_jugadores():
+    """
+    Borra todos los archivos de jugadores de la carpeta.
+    Usa shutil para borrar la carpeta entera y la vuelve a crear vacía.
+    Pide confirmación antes de actuar.
+    """
+    print("\n--- LIMPIAR TODOS LOS JUGADORES ---\n")
+
+    jugadores = obtener_jugadores()
+
+    if not jugadores:
+        print("No hay jugadores que eliminar.\n")
+        return
+
+    print(f"  Esto eliminará {len(jugadores)} jugador/es permanentemente.")
+    confirmacion = input("  ¿Estás seguro? (s/n): ").strip().lower()
+
+    if confirmacion != "s":
+        print("Operación cancelada.\n")
+        return
+
+    try:
+        # shutil.rmtree() → borra la carpeta ENTERA con todo su contenido
+        # Es más directo que borrar archivo por archivo con os.remove()
+        shutil.rmtree(CARPETA_JUGADORES)
+
+        # Volvemos a crear la carpeta vacía
+        # (la necesitamos para que el programa siga funcionando)
+        os.makedirs(CARPETA_JUGADORES, exist_ok=True)
+
+        print(f"Todos los jugadores han sido eliminados.\n")
+
+    except OSError as e:
+        print(f"Error al limpiar los jugadores: {e}")
+
